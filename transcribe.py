@@ -60,9 +60,26 @@ def format_time(seconds: float) -> str:
     return f"{m:02d}:{s:05.2f}"
 
 
+def iter_diarization(diarization):
+    """
+    Iterateur unifie pour les deux APIs pyannote :
+      - pyannote.audio 3.x : Annotation  -> .itertracks(yield_label=True) -> (turn, _, speaker)
+      - pyannote.audio 4.x : DiarizeOutput -> .speaker_diarization        -> (turn, speaker)
+    Yields: (turn, speaker) dans les deux cas.
+    """
+    if hasattr(diarization, "itertracks"):
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            yield turn, speaker
+    elif hasattr(diarization, "speaker_diarization"):
+        for turn, speaker in diarization.speaker_diarization:
+            yield turn, speaker
+    else:
+        raise AttributeError(f"Format de diarisation non reconnu : {type(diarization)}")
+
+
 def get_speaker_for_segment(diarization, start: float, end: float) -> str:
     durations: dict[str, float] = defaultdict(float)
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
+    for turn, speaker in iter_diarization(diarization):
         overlap_start = max(turn.start, start)
         overlap_end   = min(turn.end, end)
         if overlap_start < overlap_end:
@@ -608,7 +625,7 @@ def transcribe(
             if max_speakers: diarize_kwargs["max_speakers"] = max_speakers
             diarization = pipeline(audio_input, **diarize_kwargs)
 
-            unique_speakers = {spk for _, _, spk in diarization.itertracks(yield_label=True)}
+            unique_speakers = {spk for _, spk in iter_diarization(diarization)}
             print(f"      {len(unique_speakers)} locuteur(s) detecte(s)")
             metadata["num_speakers"] = len(unique_speakers)
 
