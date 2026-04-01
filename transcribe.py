@@ -40,7 +40,7 @@ load_dotenv()
 # =============================================================================
 
 GROQ_DEFAULT_MODEL   = "llama-3.1-8b-instant"   # 30k TPM, 128k ctx, gratuit
-GROQ_CHUNK_TOKENS    = 4000                       # tokens max par requete
+GROQ_CHUNK_TOKENS    = 1500                       # tokens max par chunk (free tier : 6k/req, ~2.4x ratio fr)
 OLLAMA_DEFAULT_MODEL = "mistral"
 OLLAMA_BASE_URL      = "http://localhost:11434"
 
@@ -338,6 +338,11 @@ def _parse_json(raw: str) -> dict:
     return json.loads(raw.strip())
 
 
+class GroqChunkTooLargeError(Exception):
+    """Levee quand le chunk depasse la limite de tokens Groq (413)."""
+    pass
+
+
 def _call_groq(prompt: str, model: str, max_retries: int = 3) -> str:
     import time
     try:
@@ -351,12 +356,16 @@ def _call_groq(prompt: str, model: str, max_retries: int = 3) -> str:
             resp = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=8192,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
                 temperature=0.1,
             )
             return resp.choices[0].message.content
         except Exception as exc:
+            err = str(exc)
+            # Erreur 413 : chunk trop grand pour le tier -- pas la peine de reessayer
+            if "413" in err:
+                raise GroqChunkTooLargeError(err) from exc
             last_exc = exc
             if attempt < max_retries:
                 wait = 10 * attempt
@@ -471,19 +480,31 @@ def llm_process(
         except Exception as exc:
             print(f"    [!] Identification echouee : {exc}")
 
-    # -- Passe 2 : Correction/polish en chunks --
+    # -- Passe 2 : Correction/polish en chunks (taille adaptive si 413) --
     try:
         print("    Passe 2/2 : correction et polish...")
-        chunks = chunk_transcript(transcript, chunk_tokens)
-        n      = len(chunks)
-        corrected = []
-        for i, chunk in enumerate(chunks, 1):
-            print(f"\r      Chunk {i}/{n}...", end="", flush=True)
-            raw  = _call_llm(_build_polish_prompt(chunk, language),
-                             effective, groq_model, ollama_model, claude_model)
-            data = _parse_json(raw)
-            corrected.append(data.get("transcript", chunk))
-        print(f"\r      {n}/{n} chunks traites.          ")
+        adaptive_tokens = chunk_tokens
+        chunks = chunk_transcript(transcript, adaptive_tokens)
+        corrected: list[str] = []
+        idx = 0
+        while idx < len(chunks):
+            chunk = chunks[idx]
+            print(f"\r      Chunk {idx+1}/{len(chunks)}...", end="", flush=True)
+            try:
+                raw  = _call_llm(_build_polish_prompt(chunk, language),
+                                 effective, groq_model, ollama_model, claude_model)
+                data = _parse_json(raw)
+                corrected.append(data.get("transcript", chunk))
+                idx += 1
+            except GroqChunkTooLargeError:
+                # Chunk encore trop grand meme apres reduction initiale :
+                # on reduit de moitie et on re-decoupe la queue restante
+                adaptive_tokens = max(400, adaptive_tokens // 2)
+                print(f"\n      [!] Chunk trop grand (413) -> re-decoupage : {adaptive_tokens} tok/chunk")
+                remaining = "\n".join(chunks[idx:])
+                chunks = chunks[:idx] + chunk_transcript(remaining, adaptive_tokens)
+                # Ne pas incrementer idx -- on relance sur le meme idx avec le chunk plus petit
+        print(f"\r      {len(corrected)} chunks traites.          ")
         transcript = "\n".join(corrected)
     except Exception as exc:
         print(f"\n    [!] Correction echouee : {exc}")
@@ -596,6 +617,7 @@ def transcribe(
             if "403" in msg or "gated" in msg or "restricted" in msg or "authorized" in msg:
                 print("      [!] Acces refuse (erreur 403). Acceptez les CGU sur HuggingFace :")
                 print("          -> https://huggingface.co/pyannote/speaker-diarization-3.1")
+                print("          -> https://huggingface.co/pyannote/pyannote/speaker-diarization-community-1")
                 print("          -> https://huggingface.co/pyannote/segmentation-3.0")
             else:
                 print(f"      [!] Erreur diarisation : {exc}")
