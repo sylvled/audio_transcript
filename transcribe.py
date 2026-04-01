@@ -13,6 +13,7 @@ Usage :
 import os
 import sys
 import json
+import time
 import logging
 import warnings
 import argparse
@@ -50,6 +51,20 @@ OLLAMA_BASE_URL      = "http://localhost:11434"
 # =============================================================================
 # Utilitaires generaux
 # =============================================================================
+
+def _fmt_dur(seconds: float) -> str:
+    """Formate une duree de traitement : 1h23m45s | 4m32s | 12.3s"""
+    if seconds >= 3600:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        return f"{h}h{m:02d}m{s:02d}s"
+    if seconds >= 60:
+        m = int(seconds // 60)
+        s = int(seconds % 60)
+        return f"{m}m{s:02d}s"
+    return f"{seconds:.1f}s"
+
 
 def format_time(seconds: float) -> str:
     h = int(seconds // 3600)
@@ -555,6 +570,8 @@ def transcribe(
     device       = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
 
+    _t_total = time.time()
+
     print(f"\n{'='*52}")
     print(f"Fichier  : {audio_path}")
     print(f"GPU      : {torch.cuda.get_device_name(0)}" if device == "cuda"
@@ -563,12 +580,16 @@ def transcribe(
     # -------------------------------------------------------------------------
     # Etape 1 : Transcription Whisper
     # -------------------------------------------------------------------------
+    _t1 = time.time()
     print(f"\n[1/4] Chargement du modele Whisper '{model_size}'...")
     model = WhisperModel(
         model_size, device=device, compute_type=compute_type,
         download_root=str(Path.home() / ".cache" / "whisper"),
     )
+    _dur_load = time.time() - _t1
+    print(f"      Modele charge en {_fmt_dur(_dur_load)}")
 
+    _t2 = time.time()
     print("[2/4] Transcription...")
     segments_gen, info = model.transcribe(
         audio_path, language=language, beam_size=5,
@@ -593,8 +614,9 @@ def transcribe(
             print(f"\r      Progression : {pct:3d}%  [{format_time(seg.end)} / {format_time(info.duration)}]",
                   end="", flush=True)
             last_pct = pct
+    _dur_transcription = time.time() - _t2
     print(f"\r      Progression : 100%  [{format_time(info.duration)} / {format_time(info.duration)}]"
-          f"  -- {len(segments)} segments          ")
+          f"  -- {len(segments)} segments  ({_fmt_dur(_dur_transcription)})          ")
 
     metadata = {
         "language": info.language,
@@ -606,6 +628,7 @@ def transcribe(
     # -------------------------------------------------------------------------
     # Etape 2 : Diarisation (pyannote)
     # -------------------------------------------------------------------------
+    _t3 = time.time()
     diarization = None
     audio_array = None
 
@@ -669,10 +692,14 @@ def transcribe(
         except ImportError:
             print("      [!] librosa absent -- analyse timbre ignoree (pip install librosa)")
     metadata["voice_profiles"] = voice_profiles
+    _dur_diarisation = time.time() - _t3
+    if diarization is not None:
+        print(f"      Diarisation + timbre : {_fmt_dur(_dur_diarisation)}")
 
     # -------------------------------------------------------------------------
     # Etape 4 : Identification des locuteurs + polish LLM
     # -------------------------------------------------------------------------
+    _t4 = time.time()
     speaker_map: dict[str, str] = {}
     if llm_backend != "none":
         print("[4/4] Identification des locuteurs et amelioration (LLM)...")
@@ -682,9 +709,19 @@ def transcribe(
         )
     else:
         print("[4/4] Traitement LLM desactive (--llm none)")
+    _dur_llm   = time.time() - _t4
+    _dur_total = time.time() - _t_total
+    print(f"      LLM : {_fmt_dur(_dur_llm)}")
 
     metadata["speaker_map"]  = speaker_map
     metadata["llm_backend"]  = llm_backend
+    metadata["timings"] = {
+        "load_s":          round(_dur_load, 1),
+        "transcription_s": round(_dur_transcription, 1),
+        "diarisation_s":   round(_dur_diarisation, 1),
+        "llm_s":           round(_dur_llm, 1),
+        "total_s":         round(_dur_total, 1),
+    }
     return transcript, metadata
 
 
@@ -810,11 +847,25 @@ CONFIGURATION (.env) :
     speaker_map = metadata.get("speaker_map", {})
     identified  = {k: v for k, v in speaker_map.items() if k != v}
 
-    print(f"\nLangue : {metadata['language']}  |  Duree : {dur_str}  |  "
+    print(f"\nLangue : {metadata['language']}  |  Duree audio : {dur_str}  |  "
           f"Locuteurs : {metadata.get('num_speakers', 'N/A')}  |  "
           f"LLM : {metadata.get('llm_backend','?')}")
     if identified:
         print("Nommes : " + "  ".join(f"{k} -> {v}" for k, v in identified.items()))
+
+    t = metadata.get("timings", {})
+    if t:
+        sep = "-" * 38
+        print(f"\n{sep}")
+        print(f"  BILAN DES TEMPS")
+        print(sep)
+        print(f"  [1/4] Chargement modele   : {_fmt_dur(t.get('load_s', 0)):>9}")
+        print(f"  [2/4] Transcription       : {_fmt_dur(t.get('transcription_s', 0)):>9}")
+        print(f"  [3/4] Diarisation + timbre: {_fmt_dur(t.get('diarisation_s', 0)):>9}")
+        print(f"  [4/4] LLM (identification): {_fmt_dur(t.get('llm_s', 0)):>9}")
+        print(sep)
+        print(f"  TOTAL                     : {_fmt_dur(t.get('total_s', 0)):>9}")
+        print(sep)
 
     preview = transcript.split("\n")[:20]
     print(f"\n{'='*52}\nAPERCU :")
