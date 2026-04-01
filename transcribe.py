@@ -362,8 +362,9 @@ class GroqChunkTooLargeError(Exception):
     pass
 
 
-def _call_groq(prompt: str, model: str, max_retries: int = 3) -> str:
+def _call_groq(prompt: str, model: str, max_retries: int = 6) -> str:
     import time
+    import re as _re
     try:
         from groq import Groq
     except ImportError:
@@ -382,13 +383,16 @@ def _call_groq(prompt: str, model: str, max_retries: int = 3) -> str:
             return resp.choices[0].message.content
         except Exception as exc:
             err = str(exc)
-            # Erreur 413 : chunk trop grand pour le tier -- pas la peine de reessayer
+            # 413 : chunk trop grand -- pas la peine de reessayer
             if "413" in err:
                 raise GroqChunkTooLargeError(err) from exc
             last_exc = exc
             if attempt < max_retries:
-                wait = 10 * attempt
-                print(f"\n      [!] Groq tentative {attempt}/{max_retries} ({exc}). Attente {wait}s...")
+                # 429 : lire le temps suggere par Groq ("try again in X.Xs")
+                m = _re.search(r"try again in (\d+(?:\.\d+)?)s", err)
+                wait = round(float(m.group(1)) + 2.0) if m else 10 * attempt
+                print(f"\n      [!] Groq tentative {attempt}/{max_retries} "
+                      f"(rate limit). Attente {wait}s...", flush=True)
                 time.sleep(wait)
     raise last_exc
 
