@@ -1,0 +1,60 @@
+# ── Secrets et configuration locale ────────────────────────────
+.env
+
+# ── Environnement virtuel Python ────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Cache Python ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Modeles Whisper / HuggingFace (cache lourd, non versionne) ──
+*.bin
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+
+# ── Fichiers de sortie (transcriptions generees) ─────────────────
+*.txt
+!requirements.txt
+*.json
+!*.example.json
+
+# ── Fichiers audio et video (donnees utilisateur) ────────────────
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.ogg
+*.opus
+*.aac
+*.wma
+*.amr
+*.3gp
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+
+# ── IDE et outils ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Claude Code (session locale) ────────────────────────────────
+.claude/
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+logs/
