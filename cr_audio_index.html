@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CR Audio</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;padding:1rem;max-width:480px;margin:0 auto}
+    h1{color:#1a1a2e;margin-bottom:1.5rem;font-size:1.4rem}
+    .card{background:#fff;border-radius:12px;padding:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:1.5rem}
+    h2{font-size:1rem;color:#374151;margin-bottom:1rem;font-weight:600}
+    label.field-label{display:block;font-size:.8rem;color:#6b7280;margin-bottom:.25rem;margin-top:.75rem}
+    input[type=file],select,input[type=text]{width:100%;padding:.6rem;border:1px solid #ddd;border-radius:8px;font-size:.95rem;background:#fff}
+    /* Toggle format CR */
+    .toggle-wrap{margin-top:.75rem;display:flex;border:2px solid #4f46e5;border-radius:10px;overflow:hidden}
+    .toggle-btn{flex:1;padding:.65rem .4rem;text-align:center;font-size:.82rem;font-weight:600;cursor:pointer;
+                background:#fff;color:#4f46e5;border:none;transition:all .15s;line-height:1.3}
+    .toggle-btn.active{background:#4f46e5;color:#fff}
+    .toggle-btn:first-child{border-right:2px solid #4f46e5}
+    input[type=radio]{display:none}
+    /* Sélecteur de style */
+    .style-wrap{display:flex;gap:.5rem;margin-top:.5rem}
+    .style-btn{flex:1;padding:.55rem .4rem;text-align:center;font-size:.78rem;font-weight:600;cursor:pointer;
+               background:#fff;color:#374151;border:2px solid #e5e7eb;border-radius:8px;transition:all .15s;line-height:1.4}
+    .style-btn .style-sub{display:block;font-weight:400;font-size:.68rem;color:#9ca3af;margin-top:.15rem}
+    .style-btn.active{border-color:#4f46e5;background:#eef2ff;color:#4f46e5}
+    .style-btn.active .style-sub{color:#6366f1}
+    input[type=radio].style-radio{display:none}
+    .hidden{display:none}
+    button[type=submit]{margin-top:1.1rem;width:100%;padding:.8rem;background:#4f46e5;color:#fff;border:none;
+                        border-radius:8px;font-size:1rem;cursor:pointer;font-weight:600}
+    button[type=submit]:hover{background:#4338ca}
+    .jobs{margin-top:.25rem}
+    .job{display:flex;align-items:center;gap:.6rem;padding:.65rem 0;border-bottom:1px solid #f3f4f6;font-size:.875rem;flex-wrap:wrap}
+    .job:last-child{border-bottom:none}
+    .badge{padding:.2rem .55rem;border-radius:99px;font-size:.75rem;font-weight:600;white-space:nowrap}
+    .pending{background:#fef3c7;color:#92400e}
+    .processing{background:#dbeafe;color:#1e40af}
+    .completed{background:#d1fae5;color:#065f46}
+    .error{background:#fee2e2;color:#991b1b}
+    .mode-tag{font-size:.7rem;padding:.15rem .4rem;border-radius:4px;background:#f3f4f6;color:#6b7280}
+    .name{font-weight:500;flex:1}
+    .time{color:#9ca3af;font-size:.75rem}
+    .err-msg{font-size:.75rem;color:#991b1b;width:100%;padding-left:.1rem}
+    .logout{float:right;font-size:.8rem;color:#6b7280;text-decoration:none}
+    .no-tmpl{color:#dc2626;font-size:.875rem;padding:.5rem;background:#fef2f2;border-radius:6px}
+    .empty{color:#9ca3af;font-size:.875rem}
+  </style>
+</head>
+<body>
+<h1>CR Audio <a href="/logout" class="logout">Déconnexion</a><a href="/logs" style="float:right;margin-right:.8rem;font-size:.8rem;color:#4f46e5;text-decoration:none">Logs</a></h1>
+
+<div class="card">
+  <h2>Envoyer un enregistrement</h2>
+  {% if templates %}
+  <form method="POST" action="/upload" enctype="multipart/form-data" id="uploadForm">
+
+    <label class="field-label">Fichier audio</label>
+    <input type="file" name="audio"
+      accept=".mp3,.wav,.m4a,.ogg,.flac,.mp4,.mkv,.aac,.opus,.3gp,.amr" required>
+
+    <label class="field-label">Format du compte rendu</label>
+    <div class="toggle-wrap">
+      <input type="radio" name="output_mode" id="mode_docx" value="docx" checked>
+      <button type="button" class="toggle-btn active" id="btn_docx" onclick="setMode('docx')">
+        Compléter le fichier CR<br><small style="font-weight:400;font-size:.75rem">(DOCX élève)</small>
+      </button>
+      <input type="radio" name="output_mode" id="mode_txt" value="txt">
+      <button type="button" class="toggle-btn" id="btn_txt" onclick="setMode('txt')">
+        Compte rendu texte<br><small style="font-weight:400;font-size:.75rem">(fichier TXT)</small>
+      </button>
+    </div>
+
+    <!-- Mode DOCX : sélecteur de template élève -->
+    <div id="block_docx">
+      <label class="field-label">Élève concerné(e)</label>
+      <select name="template" id="sel_template">
+        <option value="">— Sélectionner —</option>
+        {% for t in templates %}
+        <option value="{{ t }}">{{ student_name(t) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Mode TXT : type de réunion + titre -->
+    <div id="block_txt" class="hidden">
+      <label class="field-label">Type de réunion</label>
+      <select name="cr_type" id="sel_cr_type">
+        {% for key, label in cr_type_labels.items() %}
+        <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <label class="field-label">Titre ou référence (optionnel)</label>
+      <input type="text" name="titre_txt" id="titre_txt"
+             placeholder="Ex : Conseil d'école du 18 juin 2026" autocomplete="off">
+    </div>
+
+    <!-- Style du CR (commun aux deux modes) -->
+    <label class="field-label">Style du compte rendu</label>
+    <div class="style-wrap">
+      <input type="radio" name="cr_style" id="style_detaille" value="detaille" class="style-radio">
+      <button type="button" class="style-btn" id="btn_detaille" onclick="setStyle('detaille')">
+        Exhaustif<span class="style-sub">Tout capturé, fidèle à l'enregistrement</span>
+      </button>
+      <input type="radio" name="cr_style" id="style_equilibre" value="equilibre" class="style-radio" checked>
+      <button type="button" class="style-btn active" id="btn_equilibre" onclick="setStyle('equilibre')">
+        Professionnel<span class="style-sub">Synthèse claire, ton neutre</span>
+      </button>
+      <input type="radio" name="cr_style" id="style_humain" value="humain" class="style-radio">
+      <button type="button" class="style-btn" id="btn_humain" onclick="setStyle('humain')">
+        Naturel<span class="style-sub">Style notes, aucune trace d'IA</span>
+      </button>
+    </div>
+
+    <button type="submit">Envoyer pour traitement</button>
+  </form>
+  {% else %}
+  <div class="no-tmpl">Aucun template disponible.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Suivi des traitements</h2>
+  <div class="jobs">
+    {% if jobs %}
+      {% for job in jobs %}
+      <div class="job">
+        <span class="badge {{ job['status'] }}">
+          {%- if job['status']=='pending' %}En attente
+          {%- elif job['status']=='processing' %}En cours…
+          {%- elif job['status']=='completed' %}Terminé
+          {%- else %}Erreur{%- endif %}
+        </span>
+        <span class="name">{{ student_name(job['template_filename']) }}</span>
+        <span class="mode-tag">{{ 'DOCX' if job['output_mode']=='docx' else (cr_type_labels.get(job['cr_type'], 'TXT') if job['cr_type'] else 'TXT') }}</span>
+        <span class="time">{{ job['created_at'][:16].replace('T',' ') }}</span>
+        {% if job['status']=='error' and job['error'] %}
+        <span class="err-msg">{{ job['error'][:120] }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="empty">Aucun traitement pour l'instant.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+var STYLES = ['detaille', 'equilibre', 'humain'];
+
+function setMode(mode) {
+  var isDocx = mode === 'docx';
+  document.getElementById('mode_docx').checked = isDocx;
+  document.getElementById('mode_txt').checked  = !isDocx;
+  document.getElementById('btn_docx').classList.toggle('active', isDocx);
+  document.getElementById('btn_txt').classList.toggle('active',  !isDocx);
+  document.getElementById('block_docx').classList.toggle('hidden', !isDocx);
+  document.getElementById('block_txt').classList.toggle('hidden',   isDocx);
+  document.getElementById('sel_template').required = isDocx;
+}
+
+function setStyle(style) {
+  STYLES.forEach(function(s) {
+    document.getElementById('style_' + s).checked = (s === style);
+    document.getElementById('btn_' + s).classList.toggle('active', s === style);
+  });
+}
+
+setMode('docx');
+setStyle('equilibre');
+</script>
+</body>
+</html>

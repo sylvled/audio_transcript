@@ -876,3 +876,7 @@ CONFIGURATION (.env) :
 
 if __name__ == "__main__":
     main()
+    # Bypass ctranslate2/CUDA cleanup crash sur Windows (STATUS_STACK_BUFFER_OVERRUN 0xC0000409)
+    # Le transcript est déjà sur disque, la sortie forcée est sans perte.
+    import os as _os
+    _os._exit(0)
