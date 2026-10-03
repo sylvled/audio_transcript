@@ -562,6 +562,7 @@ def transcribe(
     llm_backend: str = "auto",
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
+    safe_mode: bool = False,
 ) -> tuple[str, dict]:
     """Retourne (transcript_text, metadata_dict)."""
     import torch
@@ -590,12 +591,24 @@ def transcribe(
     print(f"      Modele charge en {_fmt_dur(_dur_load)}")
 
     _t2 = time.time()
-    print("[2/4] Transcription...")
+    if safe_mode:
+        print("[2/4] Transcription (mode securise : sans contexte precedent)...")
+    else:
+        print("[2/4] Transcription...")
+    print("      Analyse VAD en cours (peut prendre quelques minutes pour un long enregistrement)...",
+          flush=True)
     segments_gen, info = model.transcribe(
-        audio_path, language=language, beam_size=5,
+        audio_path, language=language,
+        beam_size=1 if safe_mode else 5,
         word_timestamps=True, vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
-        condition_on_previous_text=True,
+        vad_parameters={
+            "min_silence_duration_ms": 1000 if safe_mode else 500,
+            "speech_pad_ms": 200,
+        },
+        condition_on_previous_text=not safe_mode,
+        no_speech_threshold=0.6,
+        compression_ratio_threshold=2.4,
+        log_prob_threshold=-1.0,
     )
 
     segments: list[dict] = []
@@ -797,6 +810,8 @@ CONFIGURATION (.env) :
     # Alias legacy
     parser.add_argument("--no-claude", action="store_true",
         help=argparse.SUPPRESS)   # conserve pour compat, equivalent a --llm none
+    parser.add_argument("--safe-mode", action="store_true",
+        help="Mode anti-hallucination : beam_size=1, VAD agressif, sans contexte precedent")
     parser.add_argument("--json", action="store_true",
         help="Sauvegarder aussi les metadonnees en .json")
 
@@ -826,6 +841,7 @@ CONFIGURATION (.env) :
         llm_backend=args.llm,
         min_speakers=args.min_speakers,
         max_speakers=args.max_speakers,
+        safe_mode=args.safe_mode,
     )
 
     output_path = Path(args.output) if args.output else audio_path.with_suffix(".txt")
