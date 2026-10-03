@@ -612,9 +612,10 @@ def transcribe(
     )
 
     segments: list[dict] = []
-    print(f"      Langue detectee : {info.language}  (confiance : {info.language_probability:.0%})")
-    print(f"      Duree audio     : {format_time(info.duration)}")
+    print(f"      Langue detectee : {info.language}  (confiance : {info.language_probability:.0%})", flush=True)
+    print(f"      Duree audio     : {format_time(info.duration)}", flush=True)
 
+    _tty = sys.stdout.isatty()
     last_pct = -1
     for seg in segments_gen:
         segments.append({
@@ -624,12 +625,21 @@ def transcribe(
         })
         pct = min(int(seg.end / info.duration * 100) if info.duration > 0 else 0, 99)
         if pct != last_pct:
-            print(f"\r      Progression : {pct:3d}%  [{format_time(seg.end)} / {format_time(info.duration)}]",
-                  end="", flush=True)
+            if _tty:
+                print(f"\r      Progression : {pct:3d}%  [{format_time(seg.end)} / {format_time(info.duration)}]",
+                      end="", flush=True)
+            else:
+                # Subprocess pipe : émettre \n pour que le watchdog reçoive le signal
+                print(f"      Progression : {pct:3d}%  [{format_time(seg.end)} / {format_time(info.duration)}]",
+                      flush=True)
             last_pct = pct
     _dur_transcription = time.time() - _t2
-    print(f"\r      Progression : 100%  [{format_time(info.duration)} / {format_time(info.duration)}]"
-          f"  -- {len(segments)} segments  ({_fmt_dur(_dur_transcription)})          ")
+    if _tty:
+        print(f"\r      Progression : 100%  [{format_time(info.duration)} / {format_time(info.duration)}]"
+              f"  -- {len(segments)} segments  ({_fmt_dur(_dur_transcription)})          ")
+    else:
+        print(f"      Progression : 100%  [{format_time(info.duration)} / {format_time(info.duration)}]"
+              f"  -- {len(segments)} segments  ({_fmt_dur(_dur_transcription)})")
 
     metadata = {
         "language": info.language,
