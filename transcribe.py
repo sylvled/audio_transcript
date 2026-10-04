@@ -569,7 +569,7 @@ def transcribe(
     from faster_whisper import WhisperModel
 
     device       = "cuda" if torch.cuda.is_available() else "cpu"
-    compute_type = "float16" if device == "cuda" else "int8"
+    compute_type = "int8_float16" if device == "cuda" else "int8"
 
     _t_total = time.time()
 
@@ -705,7 +705,8 @@ def transcribe(
         transcript = format_simple(segments)
 
     voice_profiles: dict[str, dict] = {}
-    if diarization is not None and audio_array is not None:
+    # Les profils vocaux ne servent qu'au LLM : inutile (et long sur CPU) sans LLM
+    if diarization is not None and audio_array is not None and llm_backend != "none":
         try:
             import librosa as _
             print("      Analyse du timbre vocal...")
